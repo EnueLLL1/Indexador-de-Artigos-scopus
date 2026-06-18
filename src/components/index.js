@@ -1,0 +1,7 @@
+export { Referencia } from './Referencia'
+export { Tabs } from './Tabs'
+export { Paginacao } from './Paginacao'
+export { TabelaArtigos } from './TabelaArtigos'
+export { TabelaAutores } from './TabelaAutores'
+export { TabelaReferencias } from './TabelaReferencias'
+export { TabelaKeywords } from './TabelaKeywords'

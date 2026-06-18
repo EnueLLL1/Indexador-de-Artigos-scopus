@@ -1,37 +1,18 @@
 import { useState, useEffect, useRef } from 'react'
 import Papa from 'papaparse'
-import PropTypes from 'prop-types'
 import './App.css'
-
-const TABS = [
-  { id: 'artigos', label: 'Artigos' },
-  { id: 'autores', label: 'Autores' },
-  { id: 'referencias', label: 'Referências' },
-  { id: 'keywords', label: 'Palavras-chave' },
-]
-
-const POR_PAGINA = 10
-
-function Referencia({ texto }) {
-  const [expandido, setExpandido] = useState(false)
-  const limite = 180
-
-  if (!texto || texto.length <= limite) {
-    return <span>{texto}</span>
-  }
-
-  return (
-    <span>
-      {expandido ? texto : texto.slice(0, limite) + '…'}
-      <button className="btn-expandir" onClick={() => setExpandido(!expandido)}>
-        {expandido ? ' ver menos' : ' ver mais'}
-      </button>
-    </span>
-  )
-}
-Referencia.propTypes = {
-  texto: PropTypes.string,
-}
+import { POR_PAGINA } from './constants'
+import { parseCSVData } from './utils/csvParser'
+import { useDarkMode } from './hooks/useDarkMode'
+import { usePagination } from './hooks/usePagination'
+import {
+  Tabs,
+  Paginacao,
+  TabelaArtigos,
+  TabelaAutores,
+  TabelaReferencias,
+  TabelaKeywords,
+} from './components'
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('artigos')
@@ -40,21 +21,12 @@ export default function App() {
   const [referencias, setReferencias] = useState([])
   const [keywords, setKeywords] = useState([])
   const [csvFile, setCsvFile] = useState(null)
-  const [darkMode, setDarkMode] = useState(false)
+  const [darkMode, setDarkMode] = useDarkMode(false)
 
   const [busca, setBusca] = useState('')
   const [filtroAno, setFiltroAno] = useState('')
-  const [pagina, setPagina] = useState(1)
 
   const csvInputRef = useRef(null)
-
-  useEffect(() => {
-    document.body.classList.toggle('dark', darkMode)
-  }, [darkMode])
-
-  useEffect(() => {
-    setPagina(1)
-  }, [busca, filtroAno, activeTab])
 
   function handleCarregar() {
     if (!csvFile) {
@@ -66,40 +38,7 @@ export default function App() {
       header: true,
       skipEmptyLines: true,
       complete: function (results) {
-        const novosArtigos = []
-        const novosAutores = []
-        const novasReferencias = []
-        const novosKeywords = []
-        let autorId = 1,
-          referenciaId = 1,
-          keywordId = 1
-
-        results.data.forEach((item, index) => {
-          const artigoId = index + 1
-          if (item['Title'] || item['Year'] || item['DOI']) {
-            novosArtigos.push({
-              id: artigoId,
-              titulo: item['Title'],
-              ano: item['Year'],
-              doi: item['DOI'],
-            })
-          }
-          if (item['Authors']) {
-            novosAutores.push({ id: autorId++, nome: item['Authors'] })
-          }
-          if (item['References']) {
-            novasReferencias.push({
-              id: referenciaId++,
-              nome: item['References'],
-            })
-          }
-          if (item['Author Keywords']) {
-            novosKeywords.push({
-              id: keywordId++,
-              nome: item['Author Keywords'],
-            })
-          }
-        })
+        const { artigos: novosArtigos, autores: novosAutores, referencias: novasReferencias, keywords: novosKeywords } = parseCSVData(results.data)
 
         setArtigos(novosArtigos)
         setAutores(novosAutores)
@@ -107,7 +46,10 @@ export default function App() {
         setKeywords(novosKeywords)
         setBusca('')
         setFiltroAno('')
-        setPagina(1)
+        setCsvFile(null)
+        if (csvInputRef.current) {
+          csvInputRef.current.value = ''
+        }
       },
     })
   }
@@ -120,16 +62,15 @@ export default function App() {
     setCsvFile(null)
     setBusca('')
     setFiltroAno('')
-    setPagina(1)
-    csvInputRef.current.value = ''
+    if (csvInputRef.current) {
+      csvInputRef.current.value = ''
+    }
   }
 
-  // anos únicos extraídos dos artigos para o select
   const anosUnicos = [
     ...new Set(artigos.map(a => a.ano).filter(Boolean)),
   ].sort()
 
-  // dados da aba ativa com filtros aplicados
   function dadosFiltrados() {
     const termo = busca.toLowerCase()
 
@@ -167,9 +108,12 @@ export default function App() {
   }
 
   const dados = dadosFiltrados()
-  const totalPaginas = Math.ceil(dados.length / POR_PAGINA)
-  const inicio = (pagina - 1) * POR_PAGINA
-  const dadosPagina = dados.slice(inicio, inicio + POR_PAGINA)
+  const { pagina, setPagina, totalPaginas, dadosPagina } = usePagination(dados, POR_PAGINA)
+
+  useEffect(() => {
+    setPagina(1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busca, filtroAno, activeTab])
 
   return (
     <div className="container">
@@ -226,133 +170,21 @@ export default function App() {
         )}
       </div>
 
-      <div className="tabs">
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            className={'tab-button' + (activeTab === tab.id ? ' active' : '')}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <Tabs activeTab={activeTab} onChange={setActiveTab} />
 
       <div className="table-wrap">
-        {activeTab === 'artigos' && (
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Título</th>
-                <th>Ano</th>
-                <th>DOI</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dadosPagina.map(a => (
-                <tr key={a.id}>
-                  <td>{a.id}</td>
-                  <td>{a.titulo}</td>
-                  <td>{a.ano}</td>
-                  <td>{a.doi}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        {activeTab === 'autores' && (
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Autores</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dadosPagina.map(a => (
-                <tr key={a.id}>
-                  <td>{a.id}</td>
-                  <td>
-                    <div className="badges">
-                      {a.nome.split(';').map((nome, i) => (
-                        <span key={i} className="badge">
-                          {nome.trim()}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        {activeTab === 'referencias' && (
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Referências</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dadosPagina.map(r => (
-                <tr key={r.id}>
-                  <td>{r.id}</td>
-                  <td>
-                    <Referencia texto={r.nome} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        {activeTab === 'keywords' && (
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Palavras-chave</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dadosPagina.map(k => (
-                <tr key={k.id}>
-                  <td>{k.id}</td>
-                  <td>
-                    <div className="badges">
-                      {k.nome.split(';').map((kw, i) => (
-                        <span key={i} className="badge badge-kw">
-                          {kw.trim()}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        {activeTab === 'artigos' && <TabelaArtigos dados={dadosPagina} />}
+        {activeTab === 'autores' && <TabelaAutores dados={dadosPagina} />}
+        {activeTab === 'referencias' && <TabelaReferencias dados={dadosPagina} />}
+        {activeTab === 'keywords' && <TabelaKeywords dados={dadosPagina} />}
       </div>
 
-      {totalPaginas > 1 && (
-        <div className="paginacao">
-          <button onClick={() => setPagina(p => p - 1)} disabled={pagina === 1}>
-            ← Anterior
-          </button>
-          <span className="pagina-info">
-            Página {pagina} de {totalPaginas}
-          </span>
-          <button
-            onClick={() => setPagina(p => p + 1)}
-            disabled={pagina === totalPaginas}
-          >
-            Próxima →
-          </button>
-        </div>
-      )}
+      <Paginacao
+        pagina={pagina}
+        totalPaginas={totalPaginas}
+        onPrevious={() => setPagina(p => p - 1)}
+        onNext={() => setPagina(p => p + 1)}
+      />
     </div>
   )
 }

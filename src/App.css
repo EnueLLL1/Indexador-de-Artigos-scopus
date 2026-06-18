@@ -382,3 +382,36 @@ body.dark .btn-expandir {
   background: none;
   opacity: 0.8;
 }
+
+/* mensagem do Supabase */
+.mensagem-supabase {
+  padding: 12px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 1rem;
+  border: 1px solid;
+}
+
+.mensagem-supabase.sucesso {
+  background: #ecfdf5;
+  color: #047857;
+  border-color: #a7f3d0;
+}
+
+.mensagem-supabase.erro {
+  background: #fef2f2;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+body.dark .mensagem-supabase.sucesso {
+  background: #064e3b;
+  color: #d1fae5;
+  border-color: #065f46;
+}
+
+body.dark .mensagem-supabase.erro {
+  background: #7f1d1d;
+  color: #fee2e2;
+  border-color: #991b1b;
+}

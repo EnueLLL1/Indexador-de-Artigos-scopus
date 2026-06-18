@@ -3,6 +3,7 @@ import Papa from 'papaparse'
 import './App.css'
 import { POR_PAGINA } from './constants'
 import { parseCSVData } from './utils/csvParser'
+import { enviarParaSupabase } from './utils/supabaseService'
 import { useDarkMode } from './hooks/useDarkMode'
 import { usePagination } from './hooks/usePagination'
 import {
@@ -22,13 +23,15 @@ export default function App() {
   const [keywords, setKeywords] = useState([])
   const [csvFile, setCsvFile] = useState(null)
   const [darkMode, setDarkMode] = useDarkMode(false)
+  const [enviandoParaSupabase, setEnviandoParaSupabase] = useState(false)
+  const [mensagemSupabase, setMensagemSupabase] = useState(null)
 
   const [busca, setBusca] = useState('')
   const [filtroAno, setFiltroAno] = useState('')
 
   const csvInputRef = useRef(null)
 
-  function handleCarregar() {
+  async function handleCarregar() {
     if (!csvFile) {
       alert('Selecione um CSV')
       return
@@ -37,8 +40,8 @@ export default function App() {
     Papa.parse(csvFile, {
       header: true,
       skipEmptyLines: true,
-      complete: function (results) {
-        const { artigos: novosArtigos, autores: novosAutores, referencias: novasReferencias, keywords: novosKeywords } = parseCSVData(results.data)
+      complete: async function (results) {
+        const { artigos: novosArtigos, autores: novosAutores, referencias: novasReferencias, keywords: novosKeywords, isbns, openAccess } = parseCSVData(results.data)
 
         setArtigos(novosArtigos)
         setAutores(novosAutores)
@@ -49,6 +52,17 @@ export default function App() {
         setCsvFile(null)
         if (csvInputRef.current) {
           csvInputRef.current.value = ''
+        }
+
+        // Envia para o Supabase
+        setEnviandoParaSupabase(true)
+        setMensagemSupabase(null)
+        const resultado = await enviarParaSupabase(novosArtigos, novosAutores, novasReferencias, novosKeywords, isbns, openAccess)
+        setMensagemSupabase(resultado.mensagem)
+        setEnviandoParaSupabase(false)
+        
+        if (!resultado.sucesso) {
+          alert('Erro ao enviar para Supabase: ' + resultado.mensagem)
         }
       },
     })
@@ -136,11 +150,21 @@ export default function App() {
           accept=".csv"
           onChange={e => setCsvFile(e.target.files[0])}
         />
-        <button className="btn-primary" onClick={handleCarregar}>
-          Carregar Dados
+        <button 
+          className="btn-primary" 
+          onClick={handleCarregar}
+          disabled={enviandoParaSupabase}
+        >
+          {enviandoParaSupabase ? 'Enviando...' : 'Carregar Dados'}
         </button>
         <button onClick={handleLimpar}>Limpar Dados</button>
       </div>
+
+      {mensagemSupabase && (
+        <div className={`mensagem-supabase ${mensagemSupabase.includes('sucesso') ? 'sucesso' : 'erro'}`}>
+          {mensagemSupabase}
+        </div>
+      )}
 
       <div className="filtros">
         <input

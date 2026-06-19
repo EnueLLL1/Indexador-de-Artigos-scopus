@@ -3,7 +3,7 @@ import Papa from 'papaparse'
 import './App.css'
 import { POR_PAGINA } from './constants'
 import { parseCSVData } from './utils/csvParser'
-import { enviarParaSupabase, carregarDoSupabase, limparDadosSupabase } from './utils/supabaseService'
+import { enviarParaSupabase, carregarDoSupabase, limparDadosSupabase, clearSupabaseData } from './utils/supabaseService'
 import { useDarkMode } from './hooks/useDarkMode'
 import { usePagination } from './hooks/usePagination'
 import {
@@ -79,6 +79,24 @@ export default function App() {
     setFiltroAno('')
     setFiltroTipo('')
     setActiveTab('overview')
+  }
+
+  async function handleClearSupabaseData() {
+    if (!window.confirm('Tem certeza que deseja limpar TODOS os dados do Supabase? Esta ação não pode ser desfeita.')) {
+      return
+    }
+    
+    setCarregandoDoSupabase(true)
+    const resultado = await clearSupabaseData()
+    setCarregandoDoSupabase(false)
+    
+    if (resultado.sucesso) {
+      // Limpa dados locais também
+      handleLimparDados()
+      alert('Dados limpos do Supabase com sucesso!')
+    } else {
+      alert('Erro ao limpar dados: ' + resultado.mensagem)
+    }
   }
 
   async function handleCarregar() {
@@ -194,7 +212,14 @@ export default function App() {
             onClick={handleLimparDados}
             disabled={!dadosDoBanco}
           >
-            ✕ Limpar
+            ✕ Limpar Local
+          </button>
+          <button 
+            className="btn-action" 
+            onClick={handleClearSupabaseData}
+            disabled={!dadosDoBanco || carregandoDoSupabase}
+          >
+            🗑️ Limpar Supabase
           </button>
           <button onClick={() => setDarkMode(!darkMode)}>
             {darkMode ? '☀️ Dia' : '🌙 Noite'}

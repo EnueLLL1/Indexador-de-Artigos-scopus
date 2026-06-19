@@ -14,11 +14,20 @@ export function parseCSVData(data) {
   let isbnId = 1
   let openAccessId = 1
 
+  // Regex para identificar resumos vazios ou placeholder
+  const NO_ABSTRACT_RE = /^\[no abstract available\]$/i
+
   data.forEach((item, index) => {
     const artigoId = index + 1
     
     // Extrai todos os campos do artigo conforme schema do Supabase
     if (item[CSV_COLUMNS.TITLE] || item[CSV_COLUMNS.YEAR] || item[CSV_COLUMNS.DOI]) {
+      // Limpeza automática do resumo: vazio se for null ou placeholder
+      let resumoLimpo = item[CSV_COLUMNS.ABSTRACT]
+      if (!resumoLimpo || NO_ABSTRACT_RE.test(resumoLimpo.trim())) {
+        resumoLimpo = ''
+      }
+
       const artigo = {
         id: artigoId,
         titulo: item[CSV_COLUMNS.TITLE] || null,
@@ -27,7 +36,7 @@ export function parseCSVData(data) {
         cited_by: item[CSV_COLUMNS.CITED_BY] || null,
         link: item[CSV_COLUMNS.LINK] || null,
         doi: item[CSV_COLUMNS.DOI] || null,
-        resumo: item[CSV_COLUMNS.ABSTRACT] || null,
+        resumo: resumoLimpo,
         issn: item[CSV_COLUMNS.ISSN] || null,
         coden: item[CSV_COLUMNS.CODEN] || null,
         linguagem: item[CSV_COLUMNS.LANGUAGE] || null,

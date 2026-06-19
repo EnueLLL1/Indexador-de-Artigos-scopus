@@ -413,3 +413,99 @@ export async function enviarParaSupabase(artigos, autores, referencias, keywords
     }
   }
 }
+
+/**
+ * Carrega dados do Supabase para a aplicação
+ */
+export async function carregarDoSupabase() {
+  try {
+    console.log('Carregando dados do Supabase...')
+    
+    // Busca todos os artigos
+    let allArtigos = []
+    let from = 0
+    const PAGE = 1000
+    
+    while (true) {
+      const { data: rows, error } = await supabase
+        .from('artigo')
+        .select('*')
+        .range(from, from + PAGE - 1)
+      
+      if (error) throw error
+      if (!rows || rows.length === 0) break
+      
+      allArtigos = allArtigos.concat(rows)
+      if (rows.length < PAGE) break
+      from += PAGE
+    }
+    
+    if (allArtigos.length === 0) {
+      return { sucesso: false, mensagem: 'Nenhum dado encontrado no banco.', dados: null }
+    }
+    
+    // Busca autores e relações
+    const { data: artigoAutores } = await supabase
+      .from('artigo_autor')
+      .select('id_artigo, id_autor, autor(autor_id, nome)')
+    
+    // Busca keywords e relações
+    const { data: artigoKeywords } = await supabase
+      .from('artigo_palavrachave')
+      .select('id_artigo, id_palavrachave, palavra_chave(id, nome)')
+    
+    // Processa dados
+    const artigosProcessados = allArtigos.map(artigo => ({
+      id_artigo: artigo.id_artigo,
+      titulo: artigo.titulo,
+      ano: artigo.ano,
+      source_title: artigo.source_title,
+      cited_by: artigo.cited_by,
+      link: artigo.link,
+      doi: artigo.doi,
+      resumo: artigo.resumo,
+      issn: artigo.issn,
+      coden: artigo.coden,
+      linguagem: artigo.linguagem,
+      tipo: artigo.tipo,
+      source: artigo.source,
+      isbn: artigo.isbn,
+      autores: artigoAutores
+        ?.filter(rel => rel.id_artigo === artigo.id_artigo)
+        .map(rel => rel.autor)
+        .map(autor => ({ nome: autor.nome })) || [],
+      keywords: artigoKeywords
+        ?.filter(rel => rel.id_artigo === artigo.id_artigo)
+        .map(rel => rel.palavra_chave)
+        .map(kw => ({ nome: kw.nome })) || [],
+    }))
+    
+    return {
+      sucesso: true,
+      mensagem: `${artigosProcessados.length} artigos carregados do Supabase.`,
+      dados: {
+        artigos: artigosProcessados,
+        total: artigosProcessados.length,
+      },
+    }
+  } catch (erro) {
+    console.error('Erro ao carregar do Supabase:', erro)
+    return {
+      sucesso: false,
+      mensagem: `Erro ao carregar dados: ${erro.message}`,
+      dados: null,
+    }
+  }
+}
+
+/**
+ * Limpa dados locais da aplicação (não apaga do banco)
+ */
+export function limparDadosSupabase() {
+  return {
+    artigos: [],
+    autores: [],
+    referencias: [],
+    keywords: [],
+  }
+}

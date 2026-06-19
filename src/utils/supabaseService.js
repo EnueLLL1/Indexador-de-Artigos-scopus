@@ -156,26 +156,34 @@ export async function enviarParaSupabase(artigos, autores, referencias, keywords
       indexKeywordsInseridas.push(data)
     }
 
-    // 5. Inserir referências
+    // 5. Inserir referências (OTIMIZADO: evita erros com caracteres especiais na URL)
     const referenciasInseridas = []
+    
+    // Primeiro, carrega todas as referências existentes para cache em memória
+    console.log('Carregando cache de referências existentes...')
+    const { data: allReferenciasExistentes, error: erroCache } = await supabase
+      .from('references_table')
+      .select('id, nome')
+    
+    let cacheReferencias = []
+    if (erroCache) {
+      console.warn('Não foi possível carregar cache de referências, usando fallback:', erroCache.message)
+    } else {
+      cacheReferencias = allReferenciasExistentes || []
+      console.log(`Cache carregado com ${cacheReferencias.length} referências`)
+    }
+    
     for (const referencia of referencias) {
       if (!referencia.nome) continue
       
-      const { data: existente, error: erroBusca } = await supabase
-        .from('references_table')
-        .select('id, nome')
-        .eq('nome', referencia.nome)
-        .single()
-      
-      if (erroBusca && erroBusca.code !== 'PGRST116') {
-        console.error('Erro ao buscar referência:', erroBusca)
-        continue
-      }
+      // Busca no cache em vez de fazer requisição HTTP
+      const existenteNoCache = cacheReferencias.find(r => r.nome === referencia.nome)
       
       let data
-      if (existente) {
-        data = existente
+      if (existenteNoCache) {
+        data = existenteNoCache
       } else {
+        // Não existe no cache, tenta inserir
         const { data: inserido, error: erroInsert } = await supabase
           .from('references_table')
           .insert({ nome: referencia.nome })
@@ -183,10 +191,29 @@ export async function enviarParaSupabase(artigos, autores, referencias, keywords
           .single()
         
         if (erroInsert) {
-          console.error('Erro ao inserir referência:', erroInsert)
-          continue
+          // Se for erro de duplicação (race condition), busca no banco
+          if (erroInsert.code === '23505' || erroInsert.message.includes('unique')) {
+            const { data: retryData } = await supabase
+              .from('references_table')
+              .select('id, nome')
+              .eq('nome', referencia.nome)
+              .single()
+            if (retryData) {
+              data = retryData
+              // Adiciona ao cache para próximas iterações
+              cacheReferencias.push(retryData)
+            }
+          }
+          
+          if (!data) {
+            console.error('Erro ao inserir referência:', erroInsert)
+            continue
+          }
+        } else {
+          data = inserido
+          // Adiciona ao cache para próximas iterações
+          cacheReferencias.push(inserido)
         }
-        data = inserido
       }
       
       referenciasInseridas.push(data)

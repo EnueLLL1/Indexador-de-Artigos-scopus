@@ -1,1 +1,21 @@
-Nothing needs to be added to the .gitignore file based on the provided changes. The listed files (SUPABASE_SETUP.md, supabase_constraints.sql, src/supabaseClient.js, src/utils/supabaseService.js) are all source code and documentation files that should typically be tracked in version control.
+```
+# Build artifacts
+dist/
+*.js
+
+# Dependencies
+node_modules/
+
+# Logs and temp files
+*.log
+*.tmp
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+```

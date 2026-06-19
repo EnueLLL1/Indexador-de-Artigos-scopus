@@ -1,62 +1,87 @@
 import { useState, useEffect, useRef } from 'react'
 import Papa from 'papaparse'
-import PropTypes from 'prop-types'
 import './App.css'
-
-const TABS = [
-  { id: 'artigos', label: 'Artigos' },
-  { id: 'autores', label: 'Autores' },
-  { id: 'referencias', label: 'Referências' },
-  { id: 'keywords', label: 'Palavras-chave' },
-]
-
-const POR_PAGINA = 10
-
-function Referencia({ texto }) {
-  const [expandido, setExpandido] = useState(false)
-  const limite = 180
-
-  if (!texto || texto.length <= limite) {
-    return <span>{texto}</span>
-  }
-
-  return (
-    <span>
-      {expandido ? texto : texto.slice(0, limite) + '…'}
-      <button className="btn-expandir" onClick={() => setExpandido(!expandido)}>
-        {expandido ? ' ver menos' : ' ver mais'}
-      </button>
-    </span>
-  )
-}
-Referencia.propTypes = {
-  texto: PropTypes.string,
-}
+import { POR_PAGINA } from './constants'
+import { parseCSVData } from './utils/csvParser'
+import { enviarParaSupabase, carregarDoSupabase, limparDadosSupabase } from './utils/supabaseService'
+import { useDarkMode } from './hooks/useDarkMode'
+import { usePagination } from './hooks/usePagination'
+import {
+  Tabs,
+  Paginacao,
+  TabelaArtigos,
+  TabelaAutores,
+  TabelaReferencias,
+  TabelaKeywords,
+} from './components'
+import Dashboard from './components/Dashboard'
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('artigos')
+  const [activeTab, setActiveTab] = useState('overview')
   const [artigos, setArtigos] = useState([])
   const [autores, setAutores] = useState([])
   const [referencias, setReferencias] = useState([])
   const [keywords, setKeywords] = useState([])
   const [csvFile, setCsvFile] = useState(null)
-  const [darkMode, setDarkMode] = useState(false)
+  const [darkMode, setDarkMode] = useDarkMode(false)
+  const [enviandoParaSupabase, setEnviandoParaSupabase] = useState(false)
+  const [carregandoDoSupabase, setCarregandoDoSupabase] = useState(false)
+  const [mensagemSupabase, setMensagemSupabase] = useState(null)
+  const [dadosDoBanco, setDadosDoBanco] = useState(false)
 
   const [busca, setBusca] = useState('')
   const [filtroAno, setFiltroAno] = useState('')
-  const [pagina, setPagina] = useState(1)
+  const [filtroTipo, setFiltroTipo] = useState('')
 
   const csvInputRef = useRef(null)
 
-  useEffect(() => {
-    document.body.classList.toggle('dark', darkMode)
-  }, [darkMode])
+  const tiposUnicos = [
+    ...new Set(artigos.map(a => a.tipo).filter(Boolean)),
+  ].sort()
 
-  useEffect(() => {
-    setPagina(1)
-  }, [busca, filtroAno, activeTab])
+  async function handleCarregarDoBanco() {
+    setCarregandoDoSupabase(true)
+    setMensagemSupabase(null)
+    
+    const resultado = await carregarDoSupabase()
+    
+    if (resultado.sucesso && resultado.dados) {
+      setArtigos(resultado.dados.artigos)
+      // Extrai autores e keywords dos artigos
+      const todosAutores = new Set()
+      const todasKeywords = new Set()
+      resultado.dados.artigos.forEach(artigo => {
+        artigo.autores?.forEach(autor => todosAutores.add(autor.nome))
+        artigo.keywords?.forEach(kw => todasKeywords.add(kw.nome))
+      })
+      setAutores(Array.from(todosAutores).map(nome => ({ nome })))
+      setKeywords(Array.from(todasKeywords).map(nome => ({ nome })))
+      setDadosDoBanco(true)
+      setActiveTab('overview')
+    }
+    
+    setMensagemSupabase(resultado.mensagem)
+    setCarregandoDoSupabase(false)
+    
+    if (!resultado.sucesso) {
+      alert('Erro ao carregar do Supabase: ' + resultado.mensagem)
+    }
+  }
 
-  function handleCarregar() {
+  function handleLimparDados() {
+    const dadosLimpos = limparDadosSupabase()
+    setArtigos(dadosLimpos.artigos)
+    setAutores(dadosLimpos.autores)
+    setReferencias(dadosLimpos.referencias)
+    setKeywords(dadosLimpos.keywords)
+    setDadosDoBanco(false)
+    setBusca('')
+    setFiltroAno('')
+    setFiltroTipo('')
+    setActiveTab('overview')
+  }
+
+  async function handleCarregar() {
     if (!csvFile) {
       alert('Selecione um CSV')
       return
@@ -65,41 +90,8 @@ export default function App() {
     Papa.parse(csvFile, {
       header: true,
       skipEmptyLines: true,
-      complete: function (results) {
-        const novosArtigos = []
-        const novosAutores = []
-        const novasReferencias = []
-        const novosKeywords = []
-        let autorId = 1,
-          referenciaId = 1,
-          keywordId = 1
-
-        results.data.forEach((item, index) => {
-          const artigoId = index + 1
-          if (item['Title'] || item['Year'] || item['DOI']) {
-            novosArtigos.push({
-              id: artigoId,
-              titulo: item['Title'],
-              ano: item['Year'],
-              doi: item['DOI'],
-            })
-          }
-          if (item['Authors']) {
-            novosAutores.push({ id: autorId++, nome: item['Authors'] })
-          }
-          if (item['References']) {
-            novasReferencias.push({
-              id: referenciaId++,
-              nome: item['References'],
-            })
-          }
-          if (item['Author Keywords']) {
-            novosKeywords.push({
-              id: keywordId++,
-              nome: item['Author Keywords'],
-            })
-          }
-        })
+      complete: async function (results) {
+        const { artigos: novosArtigos, autores: novosAutores, referencias: novasReferencias, keywords: novosKeywords, isbns, openAccess } = parseCSVData(results.data)
 
         setArtigos(novosArtigos)
         setAutores(novosAutores)
@@ -107,41 +99,44 @@ export default function App() {
         setKeywords(novosKeywords)
         setBusca('')
         setFiltroAno('')
-        setPagina(1)
+        setFiltroTipo('')
+        setCsvFile(null)
+        if (csvInputRef.current) {
+          csvInputRef.current.value = ''
+        }
+
+        // Envia para o Supabase
+        setEnviandoParaSupabase(true)
+        setMensagemSupabase(null)
+        const resultado = await enviarParaSupabase(novosArtigos, novosAutores, novasReferencias, novosKeywords, isbns, openAccess)
+        setMensagemSupabase(resultado.mensagem)
+        setEnviandoParaSupabase(false)
+        
+        if (!resultado.sucesso) {
+          alert('Erro ao enviar para Supabase: ' + resultado.mensagem)
+        }
       },
     })
   }
 
-  function handleLimpar() {
-    setArtigos([])
-    setAutores([])
-    setReferencias([])
-    setKeywords([])
-    setCsvFile(null)
-    setBusca('')
-    setFiltroAno('')
-    setPagina(1)
-    csvInputRef.current.value = ''
-  }
-
-  // anos únicos extraídos dos artigos para o select
   const anosUnicos = [
     ...new Set(artigos.map(a => a.ano).filter(Boolean)),
   ].sort()
 
-  // dados da aba ativa com filtros aplicados
   function dadosFiltrados() {
     const termo = busca.toLowerCase()
 
     if (activeTab === 'artigos') {
       return artigos.filter(a => {
         const bateAno = filtroAno ? a.ano === filtroAno : true
+        const bateTipo = filtroTipo ? a.tipo === filtroTipo : true
         const bateBusca = termo
           ? (a.titulo || '').toLowerCase().includes(termo) ||
             (a.doi || '').toLowerCase().includes(termo) ||
-            (a.ano || '').toLowerCase().includes(termo)
+            (a.ano || '').toLowerCase().includes(termo) ||
+            (a.autores || '').toLowerCase().includes(termo)
           : true
-        return bateAno && bateBusca
+        return bateAno && bateTipo && bateBusca
       })
     }
 
@@ -167,191 +162,140 @@ export default function App() {
   }
 
   const dados = dadosFiltrados()
-  const totalPaginas = Math.ceil(dados.length / POR_PAGINA)
-  const inicio = (pagina - 1) * POR_PAGINA
-  const dadosPagina = dados.slice(inicio, inicio + POR_PAGINA)
+  const { pagina, setPagina, totalPaginas, dadosPagina } = usePagination(dados, POR_PAGINA)
+
+  useEffect(() => {
+    setPagina(1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busca, filtroAno, filtroTipo, activeTab])
 
   return (
     <div className="container">
       <div className="app-header">
         <div>
-          <div className="app-title">Gerenciador de Artigos</div>
+          <div className="app-title">Scopus Research Dashboard</div>
           <div className="app-subtitle">
             Importação e visualização de dados Scopus
           </div>
         </div>
-        <button onClick={() => setDarkMode(!darkMode)}>
-          {darkMode ? '☀️ Modo Dia' : '🌙 Modo Noite'}
-        </button>
-      </div>
-
-      <div className="toolbar">
-        <input
-          ref={csvInputRef}
-          type="file"
-          accept=".csv"
-          onChange={e => setCsvFile(e.target.files[0])}
-        />
-        <button className="btn-primary" onClick={handleCarregar}>
-          Carregar Dados
-        </button>
-        <button onClick={handleLimpar}>Limpar Dados</button>
-      </div>
-
-      <div className="filtros">
-        <input
-          className="input-busca"
-          type="text"
-          placeholder="Buscar..."
-          value={busca}
-          onChange={e => setBusca(e.target.value)}
-        />
-        <select
-          className="select-ano"
-          value={filtroAno}
-          onChange={e => setFiltroAno(e.target.value)}
-          disabled={activeTab !== 'artigos'}
-        >
-          <option value="">Todos os anos</option>
-          {anosUnicos.map(ano => (
-            <option key={ano} value={ano}>
-              {ano}
-            </option>
-          ))}
-        </select>
-        {dados.length > 0 && (
-          <span className="contagem">
-            {dados.length} resultado{dados.length !== 1 ? 's' : ''}
-          </span>
-        )}
-      </div>
-
-      <div className="tabs">
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            className={'tab-button' + (activeTab === tab.id ? ' active' : '')}
-            onClick={() => setActiveTab(tab.id)}
+        <div className="header-actions">
+          {dadosDoBanco && (
+            <span className="badge-live">Supabase · {artigos.length} docs</span>
+          )}
+          <button 
+            className="btn-action btn-load" 
+            onClick={handleCarregarDoBanco}
+            disabled={carregandoDoSupabase}
           >
-            {tab.label}
+            {carregandoDoSupabase ? '⏳ Carregando...' : '↓ Carregar do Banco'}
           </button>
-        ))}
-      </div>
-
-      <div className="table-wrap">
-        {activeTab === 'artigos' && (
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Título</th>
-                <th>Ano</th>
-                <th>DOI</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dadosPagina.map(a => (
-                <tr key={a.id}>
-                  <td>{a.id}</td>
-                  <td>{a.titulo}</td>
-                  <td>{a.ano}</td>
-                  <td>{a.doi}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        {activeTab === 'autores' && (
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Autores</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dadosPagina.map(a => (
-                <tr key={a.id}>
-                  <td>{a.id}</td>
-                  <td>
-                    <div className="badges">
-                      {a.nome.split(';').map((nome, i) => (
-                        <span key={i} className="badge">
-                          {nome.trim()}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        {activeTab === 'referencias' && (
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Referências</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dadosPagina.map(r => (
-                <tr key={r.id}>
-                  <td>{r.id}</td>
-                  <td>
-                    <Referencia texto={r.nome} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        {activeTab === 'keywords' && (
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Palavras-chave</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dadosPagina.map(k => (
-                <tr key={k.id}>
-                  <td>{k.id}</td>
-                  <td>
-                    <div className="badges">
-                      {k.nome.split(';').map((kw, i) => (
-                        <span key={i} className="badge badge-kw">
-                          {kw.trim()}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {totalPaginas > 1 && (
-        <div className="paginacao">
-          <button onClick={() => setPagina(p => p - 1)} disabled={pagina === 1}>
-            ← Anterior
-          </button>
-          <span className="pagina-info">
-            Página {pagina} de {totalPaginas}
-          </span>
-          <button
-            onClick={() => setPagina(p => p + 1)}
-            disabled={pagina === totalPaginas}
+          <button 
+            className="btn-action" 
+            onClick={handleLimparDados}
+            disabled={!dadosDoBanco}
           >
-            Próxima →
+            ✕ Limpar
+          </button>
+          <button onClick={() => setDarkMode(!darkMode)}>
+            {darkMode ? '☀️ Dia' : '🌙 Noite'}
           </button>
         </div>
+      </div>
+
+      {/* Dashboard - Visão Geral */}
+      {activeTab === 'overview' && (
+        <Dashboard 
+          artigos={artigos}
+          autores={autores}
+          keywords={keywords}
+          dadosDoBanco={dadosDoBanco}
+          aoCarregarDoBanco={handleCarregarDoBanco}
+          aoLimparDados={handleLimparDados}
+        />
+      )}
+
+      {/* Tabs de navegação para tabelas */}
+      {activeTab !== 'overview' && (
+        <>
+          <div className="toolbar">
+            <input
+              ref={csvInputRef}
+              type="file"
+              accept=".csv"
+              onChange={e => setCsvFile(e.target.files[0])}
+            />
+            <button 
+              className="btn-primary" 
+              onClick={handleCarregar}
+              disabled={enviandoParaSupabase}
+            >
+              {enviandoParaSupabase ? 'Enviando...' : 'Carregar CSV'}
+            </button>
+          </div>
+
+          {mensagemSupabase && (
+            <div className={`mensagem-supabase ${mensagemSupabase.includes('sucesso') ? 'sucesso' : 'erro'}`}>
+              {mensagemSupabase}
+            </div>
+          )}
+
+          <div className="filtros">
+            <input
+              className="input-busca"
+              type="text"
+              placeholder="Buscar por título, autor ou DOI…"
+              value={busca}
+              onChange={e => setBusca(e.target.value)}
+            />
+            <select
+              className="select-filtro"
+              value={filtroTipo}
+              onChange={e => setFiltroTipo(e.target.value)}
+              disabled={activeTab !== 'artigos'}
+            >
+              <option value="">Todos os tipos</option>
+              {tiposUnicos.map(tipo => (
+                <option key={tipo} value={tipo}>
+                  {tipo}
+                </option>
+              ))}
+            </select>
+            <select
+              className="select-filtro"
+              value={filtroAno}
+              onChange={e => setFiltroAno(e.target.value)}
+              disabled={activeTab !== 'artigos'}
+            >
+              <option value="">Todos os anos</option>
+              {anosUnicos.map(ano => (
+                <option key={ano} value={ano}>
+                  {ano}
+                </option>
+              ))}
+            </select>
+            {dados.length > 0 && (
+              <span className="contagem">
+                {dados.length} resultado{dados.length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+
+          <Tabs activeTab={activeTab} onChange={setActiveTab} />
+
+          <div className="table-wrap">
+            {activeTab === 'artigos' && <TabelaArtigos dados={dadosPagina} />}
+            {activeTab === 'autores' && <TabelaAutores dados={dadosPagina} />}
+            {activeTab === 'referencias' && <TabelaReferencias dados={dadosPagina} />}
+            {activeTab === 'keywords' && <TabelaKeywords dados={dadosPagina} />}
+          </div>
+
+          <Paginacao
+            pagina={pagina}
+            totalPaginas={totalPaginas}
+            onPrevious={() => setPagina(p => p - 1)}
+            onNext={() => setPagina(p => p + 1)}
+          />
+        </>
       )}
     </div>
   )

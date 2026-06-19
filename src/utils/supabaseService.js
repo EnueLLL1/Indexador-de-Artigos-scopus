@@ -454,7 +454,7 @@ export async function carregarDoSupabase() {
       .from('artigo_palavrachave')
       .select('id_artigo, id_palavrachave, palavra_chave(id, nome)')
     
-    // Processa dados
+    // Processa dados - DOI null vira "Sem dados", resumo limpo automático
     const artigosProcessados = allArtigos.map(artigo => ({
       id_artigo: artigo.id_artigo,
       titulo: artigo.titulo,
@@ -462,8 +462,8 @@ export async function carregarDoSupabase() {
       source_title: artigo.source_title,
       cited_by: artigo.cited_by,
       link: artigo.link,
-      doi: artigo.doi,
-      resumo: artigo.resumo,
+      doi: artigo.doi || 'Sem dados',
+      resumo: !artigo.resumo || artigo.resumo.trim() === '' ? '' : artigo.resumo,
       issn: artigo.issn,
       coden: artigo.coden,
       linguagem: artigo.linguagem,
@@ -499,7 +499,8 @@ export async function carregarDoSupabase() {
 }
 
 /**
- * Limpa dados locais da aplicação (não apaga do banco)
+ * Limpa dados locais da aplicação e restaura tabela vazia
+ * Não apaga dados do banco - apenas reseta o estado local
  */
 export function limparDadosSupabase() {
   return {
@@ -507,5 +508,61 @@ export function limparDadosSupabase() {
     autores: [],
     referencias: [],
     keywords: [],
+  }
+}
+
+/**
+ * Envia comando para limpar dados do Supabase (opcional - requer permissões)
+ * Use com cautela pois remove todos os dados das tabelas
+ */
+export async function clearSupabaseData() {
+  try {
+    console.log('Limpando dados do Supabase...')
+    
+    // Lista de tabelas relacionais primeiro (devido às foreign keys)
+    const tabelasRelacionais = [
+      'artigo_openaccess',
+      'artigo_isbn',
+      'artigo_references',
+      'artigo_indexkeyword',
+      'artigo_palavrachave',
+      'artigo_autor',
+    ]
+    
+    // Tabelas principais
+    const tabelasPrincipais = [
+      'open_access',
+      'isbn',
+      'references_table',
+      'index_keyword',
+      'palavra_chave',
+      'autor',
+      'artigo',
+    ]
+    
+    // Limpa tabelas relacionais primeiro
+    for (const tabela of tabelasRelacionais) {
+      const { error } = await supabase.from(tabela).delete().neq('id', 0)
+      if (error) {
+        console.warn(`Erro ao limpar tabela ${tabela}:`, error.message)
+      }
+    }
+    
+    // Limpa tabelas principais
+    for (const tabela of tabelasPrincipais) {
+      const { error } = await supabase.from(tabela).delete().neq('id', 0)
+      if (error) {
+        console.warn(`Erro ao limpar tabela ${tabela}:`, error.message)
+      }
+    }
+    
+    console.log('Dados do Supabase limpos com sucesso')
+    return { sucesso: true, mensagem: 'Dados limpos do Supabase' }
+  } catch (erro) {
+    console.error('Erro ao limpar dados do Supabase:', erro)
+    return { 
+      sucesso: false, 
+      mensagem: `Erro ao limpar dados: ${erro.message}` 
+    }
   }
 }

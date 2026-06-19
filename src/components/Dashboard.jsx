@@ -5,7 +5,7 @@ import PropTypes from 'prop-types'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend)
 
-export default function Dashboard({ artigos, dadosDoBanco, aoCarregarDoBanco, aoLimparDados }) {
+export default function Dashboard({ artigos, autores, keywords, dadosDoBanco, aoCarregarDoBanco, aoLimparDados }) {
   const [metricas, setMetricas] = useState({
     totalDocumentos: 0,
     autoresUnicos: 0,
